@@ -983,3 +983,8 @@ from the home header button (`IOSHomePage._logs_btn` → `open_logs`).
   `QFontDatabase.systemFont(FixedFont)` reports a family whose
   `fixedPitch()` reads False on Windows; do not "simplify" it back.
 - Offline regression suite: `tools/test_log_viewer.py`.
+
+
+## Public attribution and owner privacy
+
+Use `soum91` as the author, maintainer, developer, and publisher in all first-party metadata. Do not publish the owner's legal name, private email, or other personal identifiers in source, licenses, Sileo/FlareStore feeds, release assets, binary packages, generated docs, logs, or commits. Audit generated artifacts before publishing. Preserve legitimate third-party copyright notices. Existing bundle identifiers, app groups, and entitlements must not be silently changed, because doing so can break upgrades and stored data.
