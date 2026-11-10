@@ -18,3 +18,12 @@ def needs_posterboard_database(posterboard, templates) -> bool:
         or any(getattr(template, "domain", "") in _POSTERBOARD_DOMAINS
                for template in templates)
     )
+
+
+def has_posterboard_changes(posterboard, templates) -> bool:
+    """Include explicit wallpaper resets, which do not need a database fetch."""
+    return bool(
+        getattr(posterboard, "full_reset", False)
+        or getattr(posterboard, "resetModes", None)
+        or needs_posterboard_database(posterboard, templates)
+    )
