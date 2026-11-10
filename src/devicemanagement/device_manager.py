@@ -30,6 +30,7 @@ import pymobiledevice3.service_connection as _sc
 
 
 from src.devicemanagement.session import lockdown_session
+from src.devicemanagement.posterboard_intent import needs_posterboard_database
 from src.exceptions.device_errors import (
     is_device_locked_error as _is_device_locked_error,
     is_find_my_error,
@@ -778,9 +779,8 @@ class DeviceManager:
             # iOS 26.2+ (iOS 27 era) uses the heavy three-phase protective restore
             pb.tendies = original_tendies[:MAX_TENDIES_PER_RESTORE]
 
-            needs_posterboard = not (
-                len(pb.tendies) == 0 and pb.videoFile is None
-                and len(tweaks[TweakID.Templates].templates) == 0)
+            needs_posterboard = needs_posterboard_database(
+                pb, tweaks[TweakID.Templates].templates)
             log_info(f'needs_posterboard={needs_posterboard}, tendies={len(pb.tendies)}, videoFile={pb.videoFile is not None}')
 
             # Phase 0: protective backup.
@@ -1220,8 +1220,7 @@ Returns (PreparedBackup, posterboard_db_ok). When the PosterBoard
         if not force and PreferenceManager.has_pbconfig_data(udid):
             return
         pb = tweaks[TweakID.PosterBoard]
-        if (len(pb.tendies) == 0 and pb.videoFile is None
-                and len(tweaks[TweakID.Templates].templates) == 0):
+        if not needs_posterboard_database(pb, tweaks[TweakID.Templates].templates):
             # no wallpapers being added, nothing to back up
             return
 
