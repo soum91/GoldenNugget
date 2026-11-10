@@ -140,7 +140,9 @@ async def _compile_posterkit(tweak,tweak_id,state):
     if not tweak.enabled or not tweak.value:
         return
     context=state.context
-    if not context.store[TweakID.PosterBoard].is_empty() or context.templates:
+    # Community-only .batter templates (e.g. Mond windowing) are not wallpaper
+    # work and must not block PosterKit; only real PosterBoard changes do.
+    if has_posterboard_changes(context.store[TweakID.PosterBoard], context.templates):
         raise NuggetException('Apply PosterKit settings separately from wallpaper imports and resets.')
     from src.restore.posterboard_backup import pull_posterboard_container
     directory=TemporaryDirectory()

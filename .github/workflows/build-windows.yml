@@ -27,6 +27,7 @@ jobs:
         run: |
           python tools/test_posterboard_intent.py
           python tools/test_posterboard_compile.py
+          python tools/test_mond_apply_preflight.py
 
       - name: Build with PyInstaller
         run: |

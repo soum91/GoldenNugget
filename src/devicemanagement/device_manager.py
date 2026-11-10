@@ -89,6 +89,22 @@ def get_files_list_str(files_list: list[FileToRestore] = None) -> str:
             print(file_info)
     return files_str
 
+APPLY_STAGE_ATTR = "nugget_apply_stage"
+
+
+def _stage_prefix(e: Exception) -> str:
+    """Tell the user WHERE an apply died, so "Failed to restore" is never shown
+    for a failure that happened before any restore began (Mond, 2026-11-10)."""
+    stage = getattr(e, APPLY_STAGE_ATTR, None)
+    if stage == "preflight":
+        return ""  # ApplyPreflightError already says nothing started
+    if stage == "compile":
+        return QCoreApplication.tr(
+            "Preparing the tweak files failed before the device restore started. "
+            "Nothing was restored to the device.") + "\n\n"
+    return ""
+
+
 def show_apply_error(e: Exception, update_label=lambda x: None, files_list: list[FileToRestore] = None):
     from src.restore.inject import FeatureFlagBaselineUnavailable
     traceback_text = "".join(traceback.format_exception(type(e), e, e.__traceback__))
@@ -98,7 +114,9 @@ def show_apply_error(e: Exception, update_label=lambda x: None, files_list: list
     backup_match = re.search(
         r"Protective backup kept at:\s*(.+)", traceback_text)
     backup_path = backup_match.group(1).strip() if backup_match else None
-    update_label("Failed to restore")
+    stage = getattr(e, APPLY_STAGE_ATTR, None)
+    update_label({"preflight": "Preflight check failed",
+                  "compile": "Failed while preparing tweaks (nothing restored)"}.get(stage, "Failed to restore"))
     from src.exceptions.device_errors import is_icloud_restore_in_progress
     if is_icloud_restore_in_progress(e):
         return ApplyAlertMessage(
@@ -152,11 +170,11 @@ def show_apply_error(e: Exception, update_label=lambda x: None, files_list: list
             detailed_txt=str(e), backup_path=backup_path,
             exc_type=type(e), exc_value=e)
     elif isinstance(e, NuggetException):
-        return ApplyAlertMessage(str(e), detailed_txt=e.detailed_text,
+        return ApplyAlertMessage(_stage_prefix(e) + str(e), detailed_txt=e.detailed_text,
                                  backup_path=backup_path)
     else:
         files_str: str = get_files_list_str(files_list)
-        error_msg = type(e).__name__ + ": " + repr(e)
+        error_msg = _stage_prefix(e) + type(e).__name__ + ": " + repr(e)
         return ApplyAlertMessage(
             error_msg,
             detailed_txt=files_str + "TRACEBACK:\n\n" + traceback_text,
@@ -761,6 +779,18 @@ class DeviceManager:
                     raise NuggetException("The Dynamic Island availability experiment requires an iPhone on iOS 27.")
                 if tweaks[TweakID.HideDICompletely].enabled:
                     raise NuggetException("Turn off Disable Dynamic Island before testing Dynamic Island Availability. Test one option at a time.")
+            # Deterministic template/compiler errors must surface BEFORE the
+            # multi-hour protective backup, not after it (Mond, 2026-11-10).
+            self._report_operation_stage("prepare")
+            update_label(QCoreApplication.tr("Checking selected tweaks before backup..."))
+            from src.controllers.apply_preflight import preflight_apply
+            try:
+                preflight = preflight_apply(tweaks, self.get_current_device_version())
+            except Exception as e:
+                setattr(e, APPLY_STAGE_ATTR, "preflight")
+                log_error(f"Apply preflight failed: {type(e).__name__}: {e}")
+                raise
+            log_info(preflight.summary())
             self._report_operation_stage("prepare")
             posterkit=tweaks.get(TweakID.PosterKitOverrides)
             if posterkit is not None and posterkit.enabled and posterkit.value:
@@ -1269,8 +1299,15 @@ Returns (PreparedBackup, posterboard_db_ok). When the PosterBoard
             prepare_setup=self.add_skip_setup, concat_file=self.concat_file,
             add_community_files=self._add_community_files, update_label=update_label,
             udid=self.get_current_device_udid())
-        artifacts = await compile_tweaks(
-            context, HotLoad(self.pref_manager.settings), self._disable_unavailable_controls(update_label))
+        try:
+            artifacts = await compile_tweaks(
+                context, HotLoad(self.pref_manager.settings), self._disable_unavailable_controls(update_label))
+        except ApplyCancelledError:
+            raise
+        except Exception as e:
+            setattr(e, APPLY_STAGE_ATTR, "compile")
+            log_error(f"Tweak compilation failed before restore: {type(e).__name__}: {e}")
+            raise
         self._last_community_writes = artifacts.community_writes
         files_to_restore = artifacts.files
         try:
