@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.devicemanagement.posterboard_intent import needs_posterboard_database
+from src.devicemanagement.posterboard_intent import needs_posterboard_database, has_posterboard_changes
 
 
 def main() -> int:
@@ -20,6 +20,8 @@ def main() -> int:
     # Mond's format-3 community-tweak-only template has no domain or files.
     mond = SimpleNamespace(domain="", tweaks=[object()])
     assert needs_posterboard_database(blank, [mond]) is False
+    assert has_posterboard_changes(blank, [mond]) is False
+    assert has_posterboard_changes(SimpleNamespace(tendies=[], videoFile=None, full_reset=False, resetModes=[]), [mond]) is False
     assert needs_posterboard_database(blank, [SimpleNamespace(tweaks=[object()])]) is False
 
     # Ordinary app container templates do not need the wallpaper sqlite.
@@ -34,6 +36,10 @@ def main() -> int:
 
     assert needs_posterboard_database(SimpleNamespace(tendies=[object()], videoFile=None), [mond]) is True
     assert needs_posterboard_database(SimpleNamespace(tendies=[], videoFile="clip.mov"), [mond]) is True
+
+    assert has_posterboard_changes(SimpleNamespace(tendies=[], videoFile=None, full_reset=True, resetModes=[]), [mond]) is True
+    assert has_posterboard_changes(SimpleNamespace(tendies=[], videoFile=None, full_reset=False, resetModes=["Gallery Cache"]), [mond]) is True
+    assert has_posterboard_changes(blank, [SimpleNamespace(domain="com.apple.PosterBoard")]) is True
 
     print("POSTERBOARD_INTENT_OK: tweak-only skips DB; wallpapers still fetch DB")
     return 0
