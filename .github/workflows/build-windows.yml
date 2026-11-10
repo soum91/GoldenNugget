@@ -23,6 +23,11 @@ jobs:
           .env\Scripts\activate.bat
           pip install -r requirements.txt
 
+      - name: Regression tests (tweak-only PosterBoard routing)
+        run: |
+          python tools/test_posterboard_intent.py
+          python tools/test_posterboard_compile.py
+
       - name: Build with PyInstaller
         run: |
           .env\Scripts\activate.bat
