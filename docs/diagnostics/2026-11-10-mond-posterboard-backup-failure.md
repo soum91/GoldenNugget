@@ -70,4 +70,9 @@ User-supplied photos: `IMG_8485.jpeg` (backup at 100%), `IMG_8486.jpeg` (error m
 
 **Expanded failure log:**
 
-![Expanded log](evidence/IMG_8487.jpeg) No device UDID/serial/account credentials are included.
+![Expanded log](evidence/IMG_8487.jpeg)
+
+No device UDID/serial/account credentials are included.
+
+## Companion mobile fork
+Claude should also cross-check the mobile implementation against the [mobile cross-repository handoff](https://github.com/soum91/GoldenNugget-mobile/blob/main/docs/diagnostics/2026-11-10-mond-posterboard-crosscheck.md). The crash above occurred on Windows; no mobile reproduction is claimed.
