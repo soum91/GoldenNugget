@@ -29,6 +29,7 @@ from src.controllers.aar.aar import wrap_in_aar
 from src.exceptions.nugget_exception import NuggetException
 from src.exceptions.posterboard_exceptions import PBTemplateException
 from src.devicemanagement.constants import Version
+from src.devicemanagement.posterboard_intent import needs_posterboard_database
 
 # PosterKit depth effect: the animated video layer is rendered larger than the
 # 390x844 document and pushed off-centre so the tilt parallax has travel.
@@ -529,7 +530,8 @@ class PosterboardTweak(Tweak):
                     domain=f"AppDomain-{self.bundle_id}"
                 ))
             return
-        elif len(self.tendies) == 0 and len(templates) == 0 and self.videoFile == None:
+        elif not needs_posterboard_database(self, templates):
+            # Community .batter templates are not PosterBoard wallpaper imports.
             return
         update_label(QCoreApplication.tr("Generating PosterBoard Video..."))
         self.create_live_photo_files(output_dir)
