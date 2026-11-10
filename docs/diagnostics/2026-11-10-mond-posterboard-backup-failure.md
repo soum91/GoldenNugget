@@ -56,4 +56,18 @@ Date: 2026-11-10. Status: **reproduced on user device with screenshots; source r
 6. Do not change device settings or skip iOS protective-backup safety merely to make the error disappear.
 
 ## Evidence
-User-supplied photos: `IMG_8485.jpeg` (backup at 100%), `IMG_8486.jpeg` (error modal), `IMG_8487.jpeg` (expanded log). Images should be attached or committed separately; transcribed observations here are available without image binaries. No device UDID/serial/account credentials are included.
+User-supplied photos: `IMG_8485.jpeg` (backup at 100%), `IMG_8486.jpeg` (error modal), `IMG_8487.jpeg` (expanded log). All three original evidence images are committed at `docs/diagnostics/evidence/` and embedded below. No device UDID/serial/account credentials are included.
+
+### Screenshot evidence
+
+**Backup reached 100%:**
+
+![Backup 100 percent](evidence/IMG_8485.jpeg)
+
+**Failure modal after backup:**
+
+![PosterBoard database error](evidence/IMG_8486.jpeg)
+
+**Expanded failure log:**
+
+![Expanded log](evidence/IMG_8487.jpeg) No device UDID/serial/account credentials are included.
