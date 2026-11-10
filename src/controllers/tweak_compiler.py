@@ -16,6 +16,7 @@ from src.tweaks.tweak_classes import (
     BasicPlistTweak, AdvancedPlistTweak, NullifyFileTweak, ReversibleBooleanPlistTweak,
 )
 from src.tweaks.posterboard.posterboard_tweak import PosterboardTweak
+from src.devicemanagement.posterboard_intent import has_posterboard_changes, needs_posterboard_database
 from src.tweaks.posterboard.template_options.templates_tweak import TemplatesTweak
 from src.tweaks.icon_themes.icon_themes_tweak import IconThemesTweak
 from src.tweaks.status_bar.status_bar_tweak import StatusBarTweak
@@ -94,6 +95,10 @@ def _compile_nullify(tweak, tweak_id, state):
 @compile_one.register(TemplatesTweak)
 def _compile_package(tweak, tweak_id, state):
     context = state.context
+    is_posterboard = isinstance(tweak, PosterboardTweak)
+    if is_posterboard and not has_posterboard_changes(tweak, context.templates):
+        # Tweak-only .batter imports belong to TemplatesTweak, not PosterBoard.
+        return
     directory = TemporaryDirectory()
     state.artifacts.temporary_dirs.append(directory)
     tweak.apply_tweak(files_to_restore=state.artifacts.files,
@@ -101,7 +106,8 @@ def _compile_package(tweak, tweak_id, state):
                       templates=context.templates, version=context.version,
                       force_pb_refresh=context.force_pb_refresh,
                       update_label=context.update_label)
-    state.artifacts.uses_domains |= tweak.uses_domains()
+    state.artifacts.uses_domains |= (tweak.uses_domains() or
+                                     (is_posterboard and needs_posterboard_database(tweak, context.templates)))
 
 
 @compile_one.register(IconThemesTweak)
