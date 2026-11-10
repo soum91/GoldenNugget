@@ -29,7 +29,7 @@ from src.controllers.aar.aar import wrap_in_aar
 from src.exceptions.nugget_exception import NuggetException
 from src.exceptions.posterboard_exceptions import PBTemplateException
 from src.devicemanagement.constants import Version
-from src.devicemanagement.posterboard_intent import needs_posterboard_database
+from src.devicemanagement.posterboard_intent import is_posterboard_template, needs_posterboard_database
 
 # PosterKit depth effect: the animated video layer is rendered larger than the
 # 390x844 document and pushed off-centre so the tilt parallax has travel.
@@ -547,7 +547,7 @@ class PosterboardTweak(Tweak):
                               self.tendie_convert_enabled(tendie)))
         # extract templates
         for template in templates:
-            if template.domain == 'com.apple.PosterBoard' or template.domain == 'AppDomain-com.apple.PosterBoard':
+            if is_posterboard_template(template):
                 update_label(QCoreApplication.tr("Configuring template {0}...").format(template.name))
                 extracted.append((template.extract(output_dir=output_dir), True))
         # add the files

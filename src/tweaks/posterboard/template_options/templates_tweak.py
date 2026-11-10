@@ -8,6 +8,7 @@ from ..template_file import TemplateFile
 from .. import community_tweaks
 
 from src.utils.file_to_restore import FileToRestore
+from src.devicemanagement.posterboard_intent import is_posterboard_template
 
 class TemplatesTweak(Tweak):
     def __init__(self):
@@ -128,7 +129,7 @@ class TemplatesTweak(Tweak):
                     'Nugget', 'Template {0} does not support iOS {1}.').format(template.name, version))
             # ignore PosterBoard templates since that is handled in PosterBoard tweaks
             # templates with only community tweaks have no files of their own
-            if template.domain and template.domain != 'com.apple.PosterBoard' and template.domain != 'AppDomain-com.apple.PosterBoard':
+            if template.domain and not is_posterboard_template(template):
                 temp_dir = os.path.join(output_dir, str(uuid.uuid4()))
                 os.makedirs(temp_dir)
                 template.extract(output_dir=temp_dir)

@@ -76,3 +76,32 @@ No device UDID/serial/account credentials are included.
 
 ## Companion mobile fork
 Claude should also cross-check the mobile implementation against the [mobile cross-repository handoff](https://github.com/soum91/GoldenNugget-mobile/blob/main/docs/diagnostics/2026-11-10-mond-posterboard-crosscheck.md). The crash above occurred on Windows; no mobile reproduction is claimed.
+
+## Claude follow-up review (2026-11-10, later)
+
+Status after this pass: **source fix extended and tested offline; still not device-verified.**
+
+1. **Guard completeness.** All four routing points (device_manager's backup decision, `tweak_compiler._compile_package`, `PosterboardTweak.apply_tweak`, `TemplatesTweak.apply_tweak`) now share `posterboard_intent.is_posterboard_template()`. It is case/whitespace tolerant, so a hand-edited domain can't pass one check and fail another. Empty domain, other app domains and `Sparserestore-` domains are not PosterBoard; both PosterBoard spellings are. The PosterKit conflict check in the compiler now uses `has_posterboard_changes`, so a community batter no longer blocks PosterKit.
+2. **TemplatesTweak really applies Mond-style tweaks.** `tools/test_mond_apply_preflight.py` runs a real format-3 windowing `.batter` through import and the real `compile_tweaks`. `SBChamoisWindowingEnabled` reaches the community writer (True when on, `writes_off` False when off), no PosterBoard file is staged, and the PosterBoard DB accessor is never called. The original Mond `.batter` was not available to this review, so the fixture copies its shape (format 3, empty domain, Managed Preferences SpringBoard write), not its exact keys.
+3. **Pre-backup preflight.** `src/controllers/apply_preflight.py` runs in `_apply_changes` before Phase 0 and raises `ApplyPreflightError` ("before any backup or restore started") for: template min/max iOS mismatch (previously a post-backup `ValueError` in TemplatesTweak), unresolvable community writes, unstageable file templates, DB-less PosterBoard work that would need a DB, and PosterKit + wallpaper conflicts. It never skips or shortens the protective backup. Backup reuse was not changed in this pass: the existing protective cache (`_prepare_protective_backup`) is the place to look, but reusing a completed backup safely needs its own design and a device test.
+4. **Failure stage reporting.** Exceptions from `compile_tweaks` are tagged `nugget_apply_stage="compile"`, and preflight failures `"preflight"`. `show_apply_error` then shows "Failed while preparing tweaks (nothing restored)" / "Preflight check failed" instead of "Failed to restore", and the alert says nothing was restored. Restore only starts after compile (`start_restore` in `_apply_tweak_pass`), so that statement is accurate.
+5. **Still open:** device retest of a rebuilt Windows artifact with the same non-wallpaper `.batter`, checking the installed behavior. Offline tests passing is not device success.
+
+Test run (Linux, offscreen Qt, partial deps): `tools/run_tests.py` gave identical pass/fail sets before and after this change (pre-existing failures are missing-numpy/opencv environment issues plus `test_community_tweaks` preference-reset baseline), plus the new `test_mond_apply_preflight` passing.
+
+## Correction: the real Mond package (supplied 2026-11-10 14:15)
+
+The user supplied the actual file, now committed as `docs/diagnostics/evidence/Mond-iPhone-Windowing-Mobile.batter` (SHA-256 `7af56884c640fd39021d0f4e79862b93ac1dd9bfafe3e8a7990161f3cc4fdcd3`). **The "format 3, community" description above is wrong.** The package is:
+
+- `format_version` 2, `domain` `ManagedPreferencesDomain`, `min_version` = `max_version` = `27.0.1`;
+- one file, `container/mobile/com.apple.springboard.plist` = `{SBChamoisWindowingEnabled: true, SBMedusaMultitaskingEnabled: true}`;
+- one `remove` option, `inverted: true`, default off: the plist ships only when the user ticks "Request iPad windowing".
+
+It is still not a PosterBoard template, so the root cause (any template entering PosterBoard staging) holds, and the earlier fix covers it. Run through this branch: preflight passes, and `compile_tweaks` stages exactly `ManagedPreferencesDomain:/mobile/com.apple.springboard.plist` with those two keys when ticked, and nothing when unticked. PosterBoard is never touched.
+
+**Second post-backup bug found with the real file:** `restore.merge_duplicates` called `plistlib.loads(file.contents)`, but template payloads are path-backed (`contents=None`). Mond plus any built-in SpringBoard tweak (same managed plist) would have died at the start of `restore_files`, again after the full backup. Fixed: it reads `contents_path`, keeps the template as the base and merges built-in keys on top. The test reproduces the old `InvalidFileException` and passes with the fix.
+
+Notes for the device retest:
+- Tick the option, or the apply delivers nothing for Mond.
+- The package only accepts iOS 27.0.1 exactly; any other build now fails in preflight.
+- On unencrypted iOS 27 backups the managed plist is merged onto the device's existing copy (`inject._prepare_preference_merges`), so it adds the two keys rather than wiping other SpringBoard managed prefs. Encrypted backups skip injection.
