@@ -13,7 +13,11 @@
 - PosterKit overrides are no longer blocked just because a community-only `.batter` is loaded; only real wallpaper imports and resets conflict with them.
 - Apply failures now say where they happened. A tweak compile failure reports that it happened before the device restore started and that nothing was restored, instead of the generic "Failed to restore".
 
+- Fixed a second post-backup crash: when a file template (such as the real Mond iPhone windowing package, which ships `ManagedPreferencesDomain/mobile/com.apple.springboard.plist`) and a built-in tweak wrote the same plist, `merge_duplicates` read the path-backed template payload as `None` and raised `InvalidFileException` at the start of the restore. It now reads the template file, uses it as the base and merges built-in keys on top.
+
 ### Verified
+
+- `tools/test_mond_apply_preflight.py` now also runs the user-supplied Mond package (`docs/diagnostics/evidence/Mond-iPhone-Windowing-Mobile.batter`, format 2, `ManagedPreferencesDomain`). Ticked, it stages exactly that springboard plist with `SBChamoisWindowingEnabled` and `SBMedusaMultitaskingEnabled`; unticked, nothing. PosterBoard is never touched, iOS 27.1 is refused in preflight, and the duplicate merge with a built-in SpringBoard key succeeds (it fails on the previous code).
 
 - Added `tools/test_mond_apply_preflight.py`: builds a real format-3 community windowing `.batter`, imports it through `TemplatesTweak`, and runs preflight plus the real `compile_tweaks`. It asserts `SBChamoisWindowingEnabled` reaches the community writer (on and off states), PosterBoard never requests its database, and version-incompatible templates and PosterBoard routing regressions fail in preflight. Offline only; not device validation.
 - Added `tools/test_posterboard_intent.py`, an offline regression suite for tweak-only templates, non-PosterBoard domains, both PosterBoard domain spellings, tendies and videos.

@@ -88,3 +88,20 @@ Status after this pass: **source fix extended and tested offline; still not devi
 5. **Still open:** device retest of a rebuilt Windows artifact with the same non-wallpaper `.batter`, checking the installed behavior. Offline tests passing is not device success.
 
 Test run (Linux, offscreen Qt, partial deps): `tools/run_tests.py` gave identical pass/fail sets before and after this change (pre-existing failures are missing-numpy/opencv environment issues plus `test_community_tweaks` preference-reset baseline), plus the new `test_mond_apply_preflight` passing.
+
+## Correction: the real Mond package (supplied 2026-11-10 14:15)
+
+The user supplied the actual file, now committed as `docs/diagnostics/evidence/Mond-iPhone-Windowing-Mobile.batter` (SHA-256 `7af56884c640fd39021d0f4e79862b93ac1dd9bfafe3e8a7990161f3cc4fdcd3`). **The "format 3, community" description above is wrong.** The package is:
+
+- `format_version` 2, `domain` `ManagedPreferencesDomain`, `min_version` = `max_version` = `27.0.1`;
+- one file, `container/mobile/com.apple.springboard.plist` = `{SBChamoisWindowingEnabled: true, SBMedusaMultitaskingEnabled: true}`;
+- one `remove` option, `inverted: true`, default off: the plist ships only when the user ticks "Request iPad windowing".
+
+It is still not a PosterBoard template, so the root cause (any template entering PosterBoard staging) holds, and the earlier fix covers it. Run through this branch: preflight passes, and `compile_tweaks` stages exactly `ManagedPreferencesDomain:/mobile/com.apple.springboard.plist` with those two keys when ticked, and nothing when unticked. PosterBoard is never touched.
+
+**Second post-backup bug found with the real file:** `restore.merge_duplicates` called `plistlib.loads(file.contents)`, but template payloads are path-backed (`contents=None`). Mond plus any built-in SpringBoard tweak (same managed plist) would have died at the start of `restore_files`, again after the full backup. Fixed: it reads `contents_path`, keeps the template as the base and merges built-in keys on top. The test reproduces the old `InvalidFileException` and passes with the fix.
+
+Notes for the device retest:
+- Tick the option, or the apply delivers nothing for Mond.
+- The package only accepts iOS 27.0.1 exactly; any other build now fails in preflight.
+- On unencrypted iOS 27 backups the managed plist is merged onto the device's existing copy (`inject._prepare_preference_merges`), so it adds the two keys rather than wiping other SpringBoard managed prefs. Encrypted backups skip injection.

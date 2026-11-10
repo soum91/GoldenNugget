@@ -184,8 +184,77 @@ def main():
         assert labels[-1].startswith("Failed while preparing tweaks"), labels
         assert "before the device restore started" in alert.txt, alert.txt
 
+    real_mond_file_template()
     print("MOND_PREFLIGHT_OK: community windowing .batter compiles to its SpringBoard key, "
           "never touches PosterBoard, and deterministic errors fail before backup")
+
+
+REAL_MOND = Path(__file__).resolve().parent.parent / "docs/diagnostics/evidence/Mond-iPhone-Windowing-Mobile.batter"
+
+
+def real_mond_file_template():
+    """The actual user-supplied Mond package (format 2, ManagedPreferencesDomain,
+    whole com.apple.springboard.plist behind an inverted remove option)."""
+    from src.restore.restore import merge_duplicates
+    from src.utils.file_to_restore import FileToRestore
+    import plistlib
+
+    templates_tweak = TemplatesTweak()
+    mond = templates_tweak.add_template(str(REAL_MOND), VERSION)
+    assert mond.domain == "ManagedPreferencesDomain" and mond.format_version == 2
+    assert not is_posterboard_template(mond)
+    pb = PosterboardTweak()
+    def no_db():
+        raise AssertionError("PosterBoard DB requested for the real Mond package")
+    pb.config_manager.update_sqlite = no_db
+    store = store_with(templates_tweak, pb)
+
+    for enabled, expect in ((True, 1), (False, 0)):
+        mond.options[0].value = enabled
+        report = preflight_apply(store, VERSION)
+        assert report.needs_posterboard_database is False and report.posterboard_changes is False
+        assert report.file_templates == [mond.name]
+
+        async def run():
+            async def prepare_setup(*_):
+                return None
+            context = CompilationContext(
+                store=store, version=VERSION, model="iPhone18,3", templates=templates_tweak.templates,
+                force_pb_refresh=True, prepare_setup=prepare_setup,
+                concat_file=lambda **_: None, add_community_files=lambda *_: None,
+                update_label=lambda *_: None)
+            artifacts = await compile_tweaks(context, FakeHotLoad())
+            try:
+                staged = [(f.domain, f.restore_path, plistlib.loads(open(f.contents_path, "rb").read()))
+                          for f in artifacts.files]
+                if staged:
+                    # Same plist also written by a built-in SpringBoard tweak:
+                    # merge_duplicates used to TypeError on the path-backed
+                    # template payload, after the protective backup.
+                    builtin = FileToRestore(contents=plistlib.dumps({"SBHideDock": True}),
+                                            restore_path="mobile/com.apple.springboard.plist",
+                                            domain="ManagedPreferencesDomain")
+                    merged = merge_duplicates(list(artifacts.files) + [builtin])
+                    assert len(merged) == 1, merged
+                    assert plistlib.loads(merged[0].contents) == {
+                        "SBChamoisWindowingEnabled": True, "SBMedusaMultitaskingEnabled": True,
+                        "SBHideDock": True}
+                return staged
+            finally:
+                artifacts.close()
+
+        staged = asyncio.run(run())
+        assert len(staged) == expect, staged
+        if staged:
+            assert staged[0][:2] == ("ManagedPreferencesDomain", "/mobile/com.apple.springboard.plist")
+            assert staged[0][2] == {"SBChamoisWindowingEnabled": True, "SBMedusaMultitaskingEnabled": True}
+
+    # Wrong iOS build: the package pins 27.0.1 exactly -> preflight, not post-backup.
+    try:
+        preflight_apply(store, "27.1")
+        raise AssertionError("preflight accepted Mond on iOS 27.1")
+    except ApplyPreflightError as exc:
+        assert "does not support iOS 27.1" in str(exc)
 
 
 if __name__ == "__main__":

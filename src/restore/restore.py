@@ -104,6 +104,18 @@ def concat_regular_file(file: FileToRestore, files_list: list[FileToRestore], la
     ))
     return new_last_domain, full_path
 
+def _file_bytes(file: FileToRestore) -> bytes:
+    data = file.contents
+    if data is None and getattr(file, "contents_path", None):
+        with open(file.contents_path, "rb") as handle:
+            data = handle.read()
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    if data is None:
+        raise ValueError(f"No contents for {file.domain}/{file.restore_path}")
+    return data
+
+
 # merge all files that have duplicates and returns the list without duplicates
 def merge_duplicates(original_files: list[FileToRestore]) -> list[FileToRestore]:
     no_dupe_files: list[FileToRestore] = []
@@ -130,10 +142,16 @@ def merge_duplicates(original_files: list[FileToRestore]) -> list[FileToRestore]
                 continue
             # merge the data (plist files only)
             print(f'merging duplicate files for {file_loc}')
-            initial_data = plistlib.loads(no_dupe_files[existing_locations[file_loc]].contents)
-            added_data = plistlib.loads(file.contents)
+            # Template payloads are path-backed (contents=None, contents_path=...).
+            # A file template that ships a whole managed plist (e.g. Mond's
+            # ManagedPreferencesDomain/mobile/com.apple.springboard.plist) plus
+            # any built-in tweak on the same plist used to TypeError here,
+            # after the multi-hour protective backup.
+            initial_data = plistlib.loads(_file_bytes(previous))
+            added_data = plistlib.loads(_file_bytes(file))
             initial_data.update(added_data)
-            no_dupe_files[existing_locations[file_loc]].contents = plistlib.dumps(initial_data)
+            previous.contents = plistlib.dumps(initial_data)
+            previous.contents_path = None
             del initial_data, added_data
         else:
             # add it to the no dupes list
