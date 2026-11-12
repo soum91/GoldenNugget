@@ -78,6 +78,8 @@ Standalone recovery / wallpapers:
                               [--timeout MINUTES] [--no-skip-setup] [--no-reboot]
   GoldenNugget restore [same options as restore-cache]
   GoldenNugget skip-setup [--udid UDID]
+  GoldenNugget rescue [--udid UDID] [--uikit] [--minutes N]
+      race a SpringBoard boot loop: empty managed springboard plist, no backup
 
 Backward-compatible fallbacks (used internally by the app):
   GoldenNugget -m <module> [args...]
@@ -105,7 +107,7 @@ def _build_parser():
     import argparse
     from src.cli import cmd_devices, cmd_tweaks, cmd_daemons, cmd_preset
     from src.cli import cmd_apply, cmd_reset, cmd_hotload, cmd_backup
-    from src.cli import cmd_diagnostics, cmd_wallpaper
+    from src.cli import cmd_diagnostics, cmd_wallpaper, cmd_rescue
 
     parser = argparse.ArgumentParser(
         prog="GoldenNugget",
@@ -115,7 +117,7 @@ def _build_parser():
     subp = parser.add_subparsers(dest="command", required=True)
     for module in (cmd_devices, cmd_tweaks, cmd_daemons, cmd_preset,
                    cmd_apply, cmd_reset, cmd_hotload, cmd_backup,
-                   cmd_diagnostics, cmd_wallpaper):
+                   cmd_diagnostics, cmd_wallpaper, cmd_rescue):
         module.add_parser(subp)
     return parser
 
@@ -134,7 +136,7 @@ def _dispatch(argv: list) -> int:
 
     known = {"apply-wallpaper", "restore-cache", "restore", "skip-setup",
              "devices", "tweaks", "daemons", "preset", "apply", "reset",
-             "hotload", "backup", "diagnostics", "wallpaper"}
+             "hotload", "backup", "diagnostics", "wallpaper", "rescue"}
     if argv and argv[0] in known:
         if argv[0] in ("apply-wallpaper", "restore-cache", "restore",
                        "skip-setup"):

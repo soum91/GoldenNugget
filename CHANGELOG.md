@@ -15,6 +15,8 @@
 
 - Fixed a second post-backup crash: when a file template (such as the real Mond iPhone windowing package, which ships `ManagedPreferencesDomain/mobile/com.apple.springboard.plist`) and a built-in tweak wrote the same plist, `merge_duplicates` read the path-backed template payload as `None` and raised `InvalidFileException` at the start of the restore. It now reads the template file, uses it as the base and merges built-in keys on top.
 
+- New `GoldenNugget rescue` command for a SpringBoard boot loop (the Mond iPhone windowing package boot-looped an iPhone 17 on iOS 27.0.1, 2026-11-12). It waits for the device and, the moment usbmux lists it, sends a one-file partial restore: an empty dictionary plist over `ManagedPreferencesDomain/mobile/com.apple.springboard.plist` (`--uikit` adds `com.apple.UIKit.plist`). It uses the existing no-protective-backup single pass (no iOS 27 three-phase flow, no security wipe) and retries every boot cycle. Each attempt is classified as LOCKED (not unlocked since boot), FIND MY, DROPPED or OTHER, and logged to `goldennugget-rescue.log` on the Desktop. On Windows the windowed build opens its own console for it. Offline-tested only; not device-verified.
+
 ### Verified
 
 - `tools/test_mond_apply_preflight.py` now also runs the user-supplied Mond package (`docs/diagnostics/evidence/Mond-iPhone-Windowing-Mobile.batter`, format 2, `ManagedPreferencesDomain`). Ticked, it stages exactly that springboard plist with `SBChamoisWindowingEnabled` and `SBMedusaMultitaskingEnabled`; unticked, nothing. PosterBoard is never touched, iOS 27.1 is refused in preflight, and the duplicate merge with a built-in SpringBoard key succeeds (it fails on the previous code).
