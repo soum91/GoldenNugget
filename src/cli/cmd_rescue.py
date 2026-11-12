@@ -54,6 +54,10 @@ def add_parser(subp):
     parser.add_argument("--udid", default=None, help="only target this device UDID")
     parser.add_argument("--uikit", action="store_true",
                         help="also reset ManagedPreferencesDomain mobile/com.apple.UIKit.plist")
+    parser.add_argument("--probe", action="store_true",
+                        help="NON-DESTRUCTIVE: just test whether the MCInstall service answers in the "
+                             "device's current (locked) state. If it does, --erase has a real chance; "
+                             "if it is refused, erase cannot work either. Writes and erases nothing.")
     parser.add_argument("--erase", action="store_true",
                         help="DESTRUCTIVE: instead of the one-file reset, send EraseDevice over "
                              "MCInstall (the remote-wipe path). Wipes all data but KEEPS the "
@@ -163,11 +167,24 @@ async def _visible_udids() -> list[str]:
     return [d.serial for d in devices if getattr(d, "connection_type", "USB") == "USB"]
 
 
-async def attempt(udid: str, files, erase: bool) -> tuple[bool, str]:
+async def attempt(udid: str, files, erase: bool, probe: bool = False) -> tuple[bool, str]:
     from pymobiledevice3.lockdown import create_using_usbmux
     lockdown = await asyncio.wait_for(create_using_usbmux(serial=udid), timeout=4)
     try:
         name = lockdown.all_values.get("DeviceName", "?")
+        if probe:
+            # Non-destructive reachability test: open MCInstall and do two read-only
+            # handshakes. If StartService / these calls are refused in the locked
+            # state, EraseDevice (same service) would be refused too.
+            from pymobiledevice3.services.mobile_config import MobileConfigService
+            say(f"  connected: {name} {lockdown.product_type} iOS {lockdown.product_version} "
+                "— probing MCInstall (no writes)")
+            async with MobileConfigService(lockdown) as mc:
+                await mc.hello()
+                profiles = await mc.get_profile_list()
+            count = len(profiles.get("ProfileMetadata", {})) if isinstance(profiles, dict) else 0
+            return True, (f"MCInstall ANSWERED in this locked state ({count} profile(s) listed). "
+                          "The remote-wipe path is open — `rescue --erase --yes` has a real chance.")
         if erase:
             # EraseDevice over com.apple.mobile.MCInstall — the remote-wipe path,
             # which (unlike mobilebackup2) is meant to run on a locked device.
@@ -193,8 +210,11 @@ async def attempt(udid: str, files, erase: bool) -> tuple[bool, str]:
 
 
 async def race(args) -> int:
-    files = [] if args.erase else build_files(args.uikit)
-    if args.erase:
+    files = [] if (args.erase or args.probe) else build_files(args.uikit)
+    if args.probe:
+        say("Probe mode (non-destructive): testing whether the MCInstall service answers the "
+            "device in its current locked state. Nothing is written or erased.")
+    elif args.erase:
         if not args.yes:
             say("REFUSING: --erase wipes ALL data on the device. Re-run with --erase --yes to arm it.")
             say("(It keeps the installed iOS version, but every photo, app and setting is erased. "
@@ -227,7 +247,7 @@ async def race(args) -> int:
         n = sum(tally.values()) + 1
         say(f"Attempt {n}: device {udid} is visible")
         try:
-            ok, detail = await attempt(udid, files, args.erase)
+            ok, detail = await attempt(udid, files, args.erase, args.probe)
         except Exception as exc:  # noqa: BLE001 — every failure is reported
             kind = classify(exc)
             tally[kind] = tally.get(kind, 0) + 1
@@ -236,7 +256,11 @@ async def race(args) -> int:
                 say("Find My is on. Restores are refused until it is off; this cannot be raced. Stopping.")
                 return 2
             if kind == "LOCKED" and tally[kind] in (3, 10, 25):
-                if args.erase:
+                if args.probe:
+                    say("  note: MCInstall is refusing in this locked state. If this keeps up, the "
+                        "remote-wipe (--erase) path is sealed too, and a recovery restore to the "
+                        "latest iOS is the only way back to a working phone.")
+                elif args.erase:
                     say("  note: even the MCInstall remote-wipe path is answering 'locked'. If every "
                         "attempt ends here, the device is sealed until first unlock and nothing on the "
                         "Windows side can reach it — a recovery restore to the latest iOS is the only way out.")
@@ -249,7 +273,10 @@ async def race(args) -> int:
             await asyncio.sleep(0.5)
             continue
         say(f"SUCCESS: {detail}.")
-        if args.erase:
+        if args.probe:
+            say("Nothing was changed. To actually recover while keeping 27.0.1, run: "
+                "GoldenNugget.exe rescue --erase --yes")
+        elif args.erase:
             say("Leave it plugged in. It wipes (a few minutes), then shows the Hello setup screen "
                 "on its CURRENT iOS version — set it up and restore your iCloud backup.")
         else:
