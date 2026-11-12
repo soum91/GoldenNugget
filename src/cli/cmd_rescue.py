@@ -54,6 +54,12 @@ def add_parser(subp):
     parser.add_argument("--udid", default=None, help="only target this device UDID")
     parser.add_argument("--uikit", action="store_true",
                         help="also reset ManagedPreferencesDomain mobile/com.apple.UIKit.plist")
+    parser.add_argument("--erase", action="store_true",
+                        help="DESTRUCTIVE: instead of the one-file reset, send EraseDevice over "
+                             "MCInstall (the remote-wipe path). Wipes all data but KEEPS the "
+                             "installed iOS version. Requires --yes to actually fire.")
+    parser.add_argument("--yes", action="store_true",
+                        help="confirm a destructive --erase (wipes the device)")
     parser.add_argument("--minutes", type=float, default=60.0,
                         help="give up after this many minutes (default 60)")
     parser.add_argument("--poll", type=float, default=0.15,
@@ -157,13 +163,24 @@ async def _visible_udids() -> list[str]:
     return [d.serial for d in devices if getattr(d, "connection_type", "USB") == "USB"]
 
 
-async def attempt(udid: str, files) -> tuple[bool, str]:
+async def attempt(udid: str, files, erase: bool) -> tuple[bool, str]:
     from pymobiledevice3.lockdown import create_using_usbmux
-    from src.restore import perform_restore
     lockdown = await asyncio.wait_for(create_using_usbmux(serial=udid), timeout=4)
     try:
-        say(f"  connected: {lockdown.all_values.get('DeviceName', '?')} "
-            f"{lockdown.product_type} iOS {lockdown.product_version} — sending reset")
+        name = lockdown.all_values.get("DeviceName", "?")
+        if erase:
+            # EraseDevice over com.apple.mobile.MCInstall — the remote-wipe path,
+            # which (unlike mobilebackup2) is meant to run on a locked device.
+            # It erases the data partition and reboots to Setup on the SAME
+            # installed iOS build: no firmware reinstall, so the version is kept.
+            from pymobiledevice3.services.mobile_config import MobileConfigService
+            say(f"  connected: {name} {lockdown.product_type} iOS {lockdown.product_version} "
+                "— sending EraseDevice (keeps the iOS version, wipes data)")
+            async with MobileConfigService(lockdown) as mc:
+                await mc.erase_device(preserve_data_plan=True, disallow_proximity_setup=False)
+            return True, "erase accepted — the device is wiping and will reboot to Setup on its current iOS"
+        from src.restore import perform_restore
+        say(f"  connected: {name} {lockdown.product_type} iOS {lockdown.product_version} — sending reset")
         back = build_backup(files, lockdown)
         await perform_restore(backup=back, reboot=False, lockdown_client=lockdown,
                               progress_callback=lambda p: None, udid=udid)
@@ -176,9 +193,21 @@ async def attempt(udid: str, files) -> tuple[bool, str]:
 
 
 async def race(args) -> int:
-    files = build_files(args.uikit)
-    targets = ", ".join(f"{f.domain}{f.restore_path}" for f in files)
-    say(f"Rescue: will write an empty plist to {targets}")
+    files = [] if args.erase else build_files(args.uikit)
+    if args.erase:
+        if not args.yes:
+            say("REFUSING: --erase wipes ALL data on the device. Re-run with --erase --yes to arm it.")
+            say("(It keeps the installed iOS version, but every photo, app and setting is erased. "
+                "Make sure your iCloud backup is good first.)")
+            return 2
+        say("ERASE MODE ARMED: the moment the device answers, it will be WIPED (data gone, iOS "
+            "version kept). Unplug now or press Ctrl-C in the next 5 seconds to abort.")
+        for n in (5, 4, 3, 2, 1):
+            say(f"  arming in {n}…")
+            await asyncio.sleep(1)
+    else:
+        targets = ", ".join(f"{f.domain}{f.restore_path}" for f in files)
+        say(f"Rescue: will write an empty plist to {targets}")
     say("Waiting for the device. Leave it plugged in and looping; this retries every cycle.")
     deadline = time.monotonic() + args.minutes * 60
     tally: dict[str, int] = {}
@@ -198,7 +227,7 @@ async def race(args) -> int:
         n = sum(tally.values()) + 1
         say(f"Attempt {n}: device {udid} is visible")
         try:
-            ok, detail = await attempt(udid, files)
+            ok, detail = await attempt(udid, files, args.erase)
         except Exception as exc:  # noqa: BLE001 — every failure is reported
             kind = classify(exc)
             tally[kind] = tally.get(kind, 0) + 1
@@ -207,15 +236,25 @@ async def race(args) -> int:
                 say("Find My is on. Restores are refused until it is off; this cannot be raced. Stopping.")
                 return 2
             if kind == "LOCKED" and tally[kind] in (3, 10, 25):
-                say("  note: iOS keeps answering 'locked'. The device has not been unlocked since "
-                    "boot, and the backup service refuses until it is. If every attempt ends here, "
-                    "this route cannot work.")
+                if args.erase:
+                    say("  note: even the MCInstall remote-wipe path is answering 'locked'. If every "
+                        "attempt ends here, the device is sealed until first unlock and nothing on the "
+                        "Windows side can reach it — a recovery restore to the latest iOS is the only way out.")
+                else:
+                    say("  note: iOS keeps answering 'locked'. The device has not been unlocked since "
+                        "boot, and the backup service refuses until it is. If every attempt ends here, "
+                        "this route cannot work — try --erase (keeps the iOS version) as the last option.")
             # Wait for this boot cycle to end before trying again, so a
             # half-dead session is not hammered.
             await asyncio.sleep(0.5)
             continue
-        say(f"SUCCESS: {detail}. The device should reboot by itself with stock SpringBoard "
-            "settings. If it still loops, run rescue again with --uikit.")
+        say(f"SUCCESS: {detail}.")
+        if args.erase:
+            say("Leave it plugged in. It wipes (a few minutes), then shows the Hello setup screen "
+                "on its CURRENT iOS version — set it up and restore your iCloud backup.")
+        else:
+            say("The device should reboot by itself with stock SpringBoard settings. "
+                "If it still loops, run rescue again with --uikit.")
         return 0
     say(f"Gave up after {args.minutes:g} minutes. Attempt results: "
         + (", ".join(f"{k} ×{v}" for k, v in sorted(tally.items())) or "device never seen"))
